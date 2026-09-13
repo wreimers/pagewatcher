@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 
 from pagewatcher import config as config_module
-from pagewatcher.config import ConfigError, NotificationProvider, WatcherConfig
+from pagewatcher.config import (
+    ConfigError,
+    FetchMode,
+    NotificationProvider,
+    WatcherConfig,
+)
 
 
 def valid_env(tmp_path: Path) -> dict[str, str]:
@@ -27,6 +32,10 @@ def test_from_env_uses_defaults(tmp_path: Path) -> None:
     assert config.poll_interval_seconds == 300.0
     assert config.request_timeout_seconds == 20.0
     assert config.max_response_bytes == 2_000_000
+    assert config.fetch_mode is FetchMode.HTTP
+    assert config.browser_profile_path == Path(".pagewatcher-browser")
+    assert config.browser_headless is True
+    assert config.browser_settle_seconds == 2.0
     assert config.include_selectors == ()
     assert config.ignore_selectors == ("script", "style", "noscript", "template")
     assert config.similarity_threshold == 0.98
@@ -45,6 +54,10 @@ def test_from_env_parses_overrides(tmp_path: Path) -> None:
             "PAGEWATCHER_POLL_INTERVAL_SECONDS": "45.5",
             "PAGEWATCHER_REQUEST_TIMEOUT_SECONDS": "4",
             "PAGEWATCHER_MAX_RESPONSE_BYTES": "4096",
+            "PAGEWATCHER_FETCH_MODE": "CHROMIUM",
+            "PAGEWATCHER_BROWSER_PROFILE_PATH": "~/state/chromium-profile",
+            "PAGEWATCHER_BROWSER_HEADLESS": "off",
+            "PAGEWATCHER_BROWSER_SETTLE_SECONDS": "0",
             "PAGEWATCHER_INCLUDE_SELECTORS": "main, #availability",
             "PAGEWATCHER_IGNORE_SELECTORS": ".timestamp, aside",
             "PAGEWATCHER_SIMILARITY_THRESHOLD": "0.9",
@@ -59,6 +72,12 @@ def test_from_env_parses_overrides(tmp_path: Path) -> None:
     assert config.poll_interval_seconds == 45.5
     assert config.request_timeout_seconds == 4.0
     assert config.max_response_bytes == 4096
+    assert config.fetch_mode is FetchMode.CHROMIUM
+    assert config.browser_profile_path == Path(
+        "~/state/chromium-profile"
+    ).expanduser()
+    assert config.browser_headless is False
+    assert config.browser_settle_seconds == 0.0
     assert config.include_selectors == ("main", "#availability")
     assert config.ignore_selectors == (".timestamp", "aside")
     assert config.similarity_threshold == 0.9
@@ -105,6 +124,14 @@ def test_from_env_rejects_unknown_notification_provider(tmp_path: Path) -> None:
     env["PAGEWATCHER_NOTIFICATION_PROVIDER"] = "carrier-pigeon"
 
     with pytest.raises(ConfigError, match="must be one of: apns, pushover"):
+        WatcherConfig.from_env(env)
+
+
+def test_from_env_rejects_unknown_fetch_mode(tmp_path: Path) -> None:
+    env = valid_env(tmp_path)
+    env["PAGEWATCHER_FETCH_MODE"] = "carrier-pigeon"
+
+    with pytest.raises(ConfigError, match="must be one of: http, chromium"):
         WatcherConfig.from_env(env)
 
 
@@ -188,6 +215,10 @@ def test_from_env_rejects_invalid_url(tmp_path: Path, url: str) -> None:
         ("PAGEWATCHER_MINIMUM_CHANGED_CHARACTERS", "-1", "greater than zero"),
         ("PAGEWATCHER_SIMILARITY_THRESHOLD", "1.1", "must be between"),
         ("PAGEWATCHER_APNS_USE_SANDBOX", "maybe", "must be a boolean"),
+        ("PAGEWATCHER_BROWSER_HEADLESS", "maybe", "must be a boolean"),
+        ("PAGEWATCHER_BROWSER_SETTLE_SECONDS", "soon", "must be a number"),
+        ("PAGEWATCHER_BROWSER_SETTLE_SECONDS", "-1", "must not be negative"),
+        ("PAGEWATCHER_BROWSER_PROFILE_PATH", " ", "must not be empty"),
     ],
 )
 def test_from_env_rejects_invalid_typed_values(

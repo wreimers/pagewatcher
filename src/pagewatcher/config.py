@@ -27,6 +27,13 @@ class NotificationProvider(StrEnum):
     PUSHOVER = "pushover"
 
 
+class FetchMode(StrEnum):
+    """Supported page retrieval implementations."""
+
+    HTTP = "http"
+    CHROMIUM = "chromium"
+
+
 @dataclass(frozen=True, slots=True)
 class ApnsConfig:
     """Credentials and routing information for Apple Push Notification service."""
@@ -60,6 +67,10 @@ class WatcherConfig:
     poll_interval_seconds: float = 300.0
     request_timeout_seconds: float = 20.0
     max_response_bytes: int = 2_000_000
+    fetch_mode: FetchMode = FetchMode.HTTP
+    browser_profile_path: Path = Path(".pagewatcher-browser")
+    browser_headless: bool = True
+    browser_settle_seconds: float = 2.0
     include_selectors: tuple[str, ...] = ()
     ignore_selectors: tuple[str, ...] = (
         "script",
@@ -111,6 +122,18 @@ class WatcherConfig:
             ),
             max_response_bytes=_positive_int(
                 values, "PAGEWATCHER_MAX_RESPONSE_BYTES", default=2_000_000
+            ),
+            fetch_mode=_fetch_mode(values),
+            browser_profile_path=_path(
+                values,
+                "PAGEWATCHER_BROWSER_PROFILE_PATH",
+                default=".pagewatcher-browser",
+            ),
+            browser_headless=_boolean(
+                values, "PAGEWATCHER_BROWSER_HEADLESS", default=True
+            ),
+            browser_settle_seconds=_nonnegative_float(
+                values, "PAGEWATCHER_BROWSER_SETTLE_SECONDS", default=2.0
             ),
             include_selectors=_selectors(
                 values.get("PAGEWATCHER_INCLUDE_SELECTORS", "")
@@ -186,6 +209,17 @@ def _notification_provider(env: Mapping[str, str]) -> NotificationProvider:
         ) from error
 
 
+def _fetch_mode(env: Mapping[str, str]) -> FetchMode:
+    raw = env.get("PAGEWATCHER_FETCH_MODE", "http").strip().lower()
+    try:
+        return FetchMode(raw)
+    except ValueError as error:
+        choices = ", ".join(mode.value for mode in FetchMode)
+        raise ConfigError(
+            f"PAGEWATCHER_FETCH_MODE must be one of: {choices}"
+        ) from error
+
+
 def _apns_config(env: Mapping[str, str]) -> ApnsConfig:
     private_key_path = Path(
         _required(env, "PAGEWATCHER_APNS_PRIVATE_KEY_PATH")
@@ -247,6 +281,19 @@ def _positive_float(
     return value
 
 
+def _nonnegative_float(
+    env: Mapping[str, str], name: str, *, default: float
+) -> float:
+    raw = env.get(name)
+    try:
+        value = default if raw is None else float(raw)
+    except ValueError as error:
+        raise ConfigError(f"{name} must be a number") from error
+    if value < 0:
+        raise ConfigError(f"{name} must not be negative")
+    return value
+
+
 def _positive_int(env: Mapping[str, str], name: str, *, default: int) -> int:
     raw = env.get(name)
     try:
@@ -286,6 +333,13 @@ def _boolean(env: Mapping[str, str], name: str, *, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ConfigError(f"{name} must be a boolean")
+
+
+def _path(env: Mapping[str, str], name: str, *, default: str) -> Path:
+    raw = env.get(name, default).strip()
+    if not raw:
+        raise ConfigError(f"{name} must not be empty")
+    return Path(raw).expanduser()
 
 
 def _selectors(value: str) -> tuple[str, ...]:
