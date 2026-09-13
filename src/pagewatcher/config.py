@@ -41,6 +41,13 @@ class BrowserChannel(StrEnum):
     CHROME = "chrome"
 
 
+class BrowserSessionMode(StrEnum):
+    """Supported browser-state lifetimes between page checks."""
+
+    PERSISTENT = "persistent"
+    EPHEMERAL = "ephemeral"
+
+
 @dataclass(frozen=True, slots=True)
 class ApnsConfig:
     """Credentials and routing information for Apple Push Notification service."""
@@ -76,6 +83,7 @@ class WatcherConfig:
     max_response_bytes: int = 2_000_000
     fetch_mode: FetchMode = FetchMode.HTTP
     browser_channel: BrowserChannel = BrowserChannel.CHROMIUM
+    browser_session_mode: BrowserSessionMode = BrowserSessionMode.PERSISTENT
     browser_profile_path: Path = Path(".pagewatcher-browser")
     browser_headless: bool = True
     browser_settle_seconds: float = 2.0
@@ -133,6 +141,7 @@ class WatcherConfig:
             ),
             fetch_mode=_fetch_mode(values),
             browser_channel=_browser_channel(values),
+            browser_session_mode=_browser_session_mode(values),
             browser_profile_path=_path(
                 values,
                 "PAGEWATCHER_BROWSER_PROFILE_PATH",
@@ -237,6 +246,17 @@ def _browser_channel(env: Mapping[str, str]) -> BrowserChannel:
         choices = ", ".join(channel.value for channel in BrowserChannel)
         raise ConfigError(
             f"PAGEWATCHER_BROWSER_CHANNEL must be one of: {choices}"
+        ) from error
+
+
+def _browser_session_mode(env: Mapping[str, str]) -> BrowserSessionMode:
+    raw = env.get("PAGEWATCHER_BROWSER_SESSION_MODE", "persistent").strip().lower()
+    try:
+        return BrowserSessionMode(raw)
+    except ValueError as error:
+        choices = ", ".join(mode.value for mode in BrowserSessionMode)
+        raise ConfigError(
+            f"PAGEWATCHER_BROWSER_SESSION_MODE must be one of: {choices}"
         ) from error
 
 
