@@ -8,6 +8,7 @@ import sys
 import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
 from jwt import PyJWTError
 
@@ -105,17 +106,20 @@ def _watch_forever(watcher: PageWatcher, interval_seconds: float) -> None:
 
 
 def _send_test_notification(config: WatcherConfig) -> None:
+    timestamp = datetime.now(UTC).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
     with Notifier(config) as notifier:
         response = notifier.send_alert(
             "Pagewatcher test",
-            "Notifications are configured correctly.",
+            f"Notifications are configured correctly.\nSent at: {timestamp}",
             url=config.url,
             deduplication_key="pagewatcher-test",
         )
     identifier = response.request_id or "not provided"
     print(
         f"Test notification accepted by {response.provider.value} "
-        f"(request-id: {identifier})"
+        f"(request-id: {identifier}, timestamp: {timestamp})"
     )
 
 

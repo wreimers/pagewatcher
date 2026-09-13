@@ -193,8 +193,12 @@ def test_test_notification_sends_expected_alert(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    timestamp = "2026-09-13T19:42:11Z"
     config = make_pushover_config()
     set_config(monkeypatch, config)
+    datetime = Mock()
+    datetime.now.return_value.isoformat.return_value = timestamp
+    monkeypatch.setattr(cli, "datetime", datetime)
     notifier = Mock()
     notifier.__enter__ = Mock(return_value=notifier)
     notifier.__exit__ = Mock(return_value=None)
@@ -210,11 +214,16 @@ def test_test_notification_sends_expected_alert(
     constructor.assert_called_once_with(config)
     notifier.send_alert.assert_called_once_with(
         "Pagewatcher test",
-        "Notifications are configured correctly.",
+        f"Notifications are configured correctly.\nSent at: {timestamp}",
         url=URL,
         deduplication_key="pagewatcher-test",
     )
-    assert "accepted by pushover (request-id: request-id)" in capsys.readouterr().out
+    datetime.now.assert_called_once_with(cli.UTC)
+    datetime.now.return_value.isoformat.assert_called_once_with(timespec="seconds")
+    output = capsys.readouterr().out
+    assert "accepted by pushover" in output
+    assert "request-id: request-id" in output
+    assert f"timestamp: {timestamp}" in output
 
 
 def test_open_watcher_constructs_configured_notifier(
