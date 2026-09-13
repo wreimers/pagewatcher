@@ -8,11 +8,12 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from urllib.parse import urlparse
 
-from pagewatcher.apns import ApnsClient, ApnsResponse
+from pagewatcher.apns import ApnsClient
 from pagewatcher.change import ChangeAssessment, assess_change
 from pagewatcher.config import WatcherConfig
 from pagewatcher.fetch import FetchStatus, PageFetcher
 from pagewatcher.html import normalize_html
+from pagewatcher.notifier import NotificationResponse, NotificationSender, Notifier
 from pagewatcher.store import SqliteStateStore
 
 MAX_NOTIFICATION_BODY_CHARACTERS = 240
@@ -35,7 +36,7 @@ class WatchResult:
     outcome: WatchOutcome
     final_url: str
     assessment: ChangeAssessment | None = None
-    notification: ApnsResponse | None = None
+    notification: NotificationResponse | None = None
 
 
 class WatcherError(RuntimeError):
@@ -50,14 +51,18 @@ class PageWatcher:
         config: WatcherConfig,
         fetcher: PageFetcher,
         store: SqliteStateStore,
-        notifier: ApnsClient,
+        notifier: NotificationSender | ApnsClient,
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
         self.config = config
         self.fetcher = fetcher
         self.store = store
-        self.notifier = notifier
+        self.notifier: NotificationSender = (
+            Notifier(config, apns_client=notifier)
+            if isinstance(notifier, ApnsClient)
+            else notifier
+        )
         self._clock = clock
 
     def check_once(self) -> WatchResult:
@@ -139,7 +144,7 @@ class PageWatcher:
             _notification_title(self.config.url),
             _notification_body(normalized),
             url=self.config.url,
-            collapse_id=assessment.current_hash,
+            deduplication_key=assessment.current_hash,
         )
         self.store.save_snapshot(
             self.config.url,

@@ -194,5 +194,5 @@ def test_failed_apns_delivery_is_retried_without_advancing_state(
         == apns_requests[1].headers["apns-collapse-id"]
     )
     assert retry.outcome is WatchOutcome.NOTIFICATION_SENT
-    assert retry.notification is not None and retry.notification.apns_id == "retry-id"
+    assert retry.notification is not None and retry.notification.request_id == "retry-id"
     assert after_retry is not None and after_retry.snapshot_text == "Sold out"

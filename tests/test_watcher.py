@@ -5,11 +5,12 @@ from unittest.mock import Mock
 
 import pytest
 
-from pagewatcher.apns import ApnsClient, ApnsResponse, TransientApnsError
+from pagewatcher.apns import TransientApnsError
 from pagewatcher.change import ChangeReason
-from pagewatcher.config import ApnsConfig, WatcherConfig
+from pagewatcher.config import ApnsConfig, NotificationProvider, WatcherConfig
 from pagewatcher.fetch import FetchResult, FetchStatus, FetchValidators, PageFetcher
 from pagewatcher.html import HtmlNormalizationError
+from pagewatcher.notifier import NotificationResponse, NotificationSender
 from pagewatcher.store import SqliteStateStore
 from pagewatcher.watcher import PageWatcher, WatcherError, WatchOutcome
 
@@ -55,8 +56,10 @@ def make_watcher(
 ) -> tuple[PageWatcher, Mock, Mock]:
     fetcher = Mock(spec=PageFetcher)
     fetcher.fetch.return_value = fetch_result
-    notifier = Mock(spec=ApnsClient)
-    notifier.send_alert.return_value = ApnsResponse("request-id", None)
+    notifier = Mock(spec=NotificationSender)
+    notifier.send_alert.return_value = NotificationResponse(
+        NotificationProvider.APNS, "request-id"
+    )
     watcher = PageWatcher(
         config,
         fetcher,
@@ -223,13 +226,15 @@ def test_material_change_notifies_then_advances_snapshot(tmp_path: Path) -> None
 
     assert result.outcome is WatchOutcome.NOTIFICATION_SENT
     assert result.final_url == "https://example.com/current-product"
-    assert result.notification == ApnsResponse("request-id", None)
+    assert result.notification == NotificationResponse(
+        NotificationProvider.APNS, "request-id"
+    )
     assert result.assessment is not None and result.assessment.is_material
     notifier.send_alert.assert_called_once_with(
         "Page changed: example.com",
         "Sold out",
         url=URL,
-        collapse_id=result.assessment.current_hash,
+        deduplication_key=result.assessment.current_hash,
     )
     assert state is not None and state.snapshot_text == "Sold out"
     assert state.last_notified_hash == state.snapshot_hash
