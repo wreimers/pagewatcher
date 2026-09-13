@@ -4,6 +4,7 @@ import pytest
 
 from pagewatcher import config as config_module
 from pagewatcher.config import (
+    BrowserChannel,
     ConfigError,
     FetchMode,
     NotificationProvider,
@@ -33,6 +34,7 @@ def test_from_env_uses_defaults(tmp_path: Path) -> None:
     assert config.request_timeout_seconds == 20.0
     assert config.max_response_bytes == 2_000_000
     assert config.fetch_mode is FetchMode.HTTP
+    assert config.browser_channel is BrowserChannel.CHROMIUM
     assert config.browser_profile_path == Path(".pagewatcher-browser")
     assert config.browser_headless is True
     assert config.browser_settle_seconds == 2.0
@@ -55,6 +57,7 @@ def test_from_env_parses_overrides(tmp_path: Path) -> None:
             "PAGEWATCHER_REQUEST_TIMEOUT_SECONDS": "4",
             "PAGEWATCHER_MAX_RESPONSE_BYTES": "4096",
             "PAGEWATCHER_FETCH_MODE": "CHROMIUM",
+            "PAGEWATCHER_BROWSER_CHANNEL": "CHROME",
             "PAGEWATCHER_BROWSER_PROFILE_PATH": "~/state/chromium-profile",
             "PAGEWATCHER_BROWSER_HEADLESS": "off",
             "PAGEWATCHER_BROWSER_SETTLE_SECONDS": "0",
@@ -73,6 +76,7 @@ def test_from_env_parses_overrides(tmp_path: Path) -> None:
     assert config.request_timeout_seconds == 4.0
     assert config.max_response_bytes == 4096
     assert config.fetch_mode is FetchMode.CHROMIUM
+    assert config.browser_channel is BrowserChannel.CHROME
     assert config.browser_profile_path == Path(
         "~/state/chromium-profile"
     ).expanduser()
@@ -132,6 +136,14 @@ def test_from_env_rejects_unknown_fetch_mode(tmp_path: Path) -> None:
     env["PAGEWATCHER_FETCH_MODE"] = "carrier-pigeon"
 
     with pytest.raises(ConfigError, match="must be one of: http, chromium"):
+        WatcherConfig.from_env(env)
+
+
+def test_from_env_rejects_unknown_browser_channel(tmp_path: Path) -> None:
+    env = valid_env(tmp_path)
+    env["PAGEWATCHER_BROWSER_CHANNEL"] = "firefox"
+
+    with pytest.raises(ConfigError, match="must be one of: chromium, chrome"):
         WatcherConfig.from_env(env)
 
 

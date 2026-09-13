@@ -34,6 +34,13 @@ class FetchMode(StrEnum):
     CHROMIUM = "chromium"
 
 
+class BrowserChannel(StrEnum):
+    """Chromium-family browser distributions supported by Playwright fetching."""
+
+    CHROMIUM = "chromium"
+    CHROME = "chrome"
+
+
 @dataclass(frozen=True, slots=True)
 class ApnsConfig:
     """Credentials and routing information for Apple Push Notification service."""
@@ -68,6 +75,7 @@ class WatcherConfig:
     request_timeout_seconds: float = 20.0
     max_response_bytes: int = 2_000_000
     fetch_mode: FetchMode = FetchMode.HTTP
+    browser_channel: BrowserChannel = BrowserChannel.CHROMIUM
     browser_profile_path: Path = Path(".pagewatcher-browser")
     browser_headless: bool = True
     browser_settle_seconds: float = 2.0
@@ -124,6 +132,7 @@ class WatcherConfig:
                 values, "PAGEWATCHER_MAX_RESPONSE_BYTES", default=2_000_000
             ),
             fetch_mode=_fetch_mode(values),
+            browser_channel=_browser_channel(values),
             browser_profile_path=_path(
                 values,
                 "PAGEWATCHER_BROWSER_PROFILE_PATH",
@@ -217,6 +226,17 @@ def _fetch_mode(env: Mapping[str, str]) -> FetchMode:
         choices = ", ".join(mode.value for mode in FetchMode)
         raise ConfigError(
             f"PAGEWATCHER_FETCH_MODE must be one of: {choices}"
+        ) from error
+
+
+def _browser_channel(env: Mapping[str, str]) -> BrowserChannel:
+    raw = env.get("PAGEWATCHER_BROWSER_CHANNEL", "chromium").strip().lower()
+    try:
+        return BrowserChannel(raw)
+    except ValueError as error:
+        choices = ", ".join(channel.value for channel in BrowserChannel)
+        raise ConfigError(
+            f"PAGEWATCHER_BROWSER_CHANNEL must be one of: {choices}"
         ) from error
 
 
