@@ -1,13 +1,21 @@
 import json
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import httpx
 import jwt
 import pytest
 
 from pagewatcher.apns import ApnsClient, TransientApnsError
-from pagewatcher.config import ApnsConfig, WatcherConfig
+from pagewatcher.config import (
+    ApnsConfig,
+    NotificationProvider,
+    PushoverConfig,
+    WatcherConfig,
+)
 from pagewatcher.fetch import PageFetcher
+from pagewatcher.notifier import Notifier
+from pagewatcher.pushover import PushoverClient
 from pagewatcher.store import SqliteStateStore
 from pagewatcher.watcher import PageWatcher, WatchOutcome
 
@@ -26,6 +34,19 @@ def make_config(tmp_path: Path) -> WatcherConfig:
             bundle_id="com.example.pagewatcher",
             device_token="device-token",
             private_key_path=private_key,
+        ),
+        database_path=tmp_path / "state" / "pagewatcher.sqlite3",
+    )
+
+
+def make_pushover_config(tmp_path: Path) -> WatcherConfig:
+    return WatcherConfig(
+        url=URL,
+        notification_provider=NotificationProvider.PUSHOVER,
+        pushover=PushoverConfig(
+            app_token="a" * 30,
+            user_key="u" * 30,
+            device="personal-iphone",
         ),
         database_path=tmp_path / "state" / "pagewatcher.sqlite3",
     )
@@ -196,3 +217,77 @@ def test_failed_apns_delivery_is_retried_without_advancing_state(
     assert retry.outcome is WatchOutcome.NOTIFICATION_SENT
     assert retry.notification is not None and retry.notification.request_id == "retry-id"
     assert after_retry is not None and after_retry.snapshot_text == "Sold out"
+
+
+def test_complete_pushover_lifecycle(
+    tmp_path: Path,
+) -> None:
+    config = make_pushover_config(tmp_path)
+    page_responses = iter(
+        [
+            httpx.Response(
+                200,
+                content=b"<main>In stock</main>",
+                headers={"ETag": '"v1"'},
+            ),
+            httpx.Response(
+                200,
+                content=b"<main>Sold out</main>",
+                headers={"ETag": '"v2"'},
+            ),
+        ]
+    )
+    pushover_requests: list[httpx.Request] = []
+
+    def pushover_handler(request: httpx.Request) -> httpx.Response:
+        pushover_requests.append(request)
+        return httpx.Response(
+            200,
+            json={"status": 1, "request": "pushover-request-id"},
+        )
+
+    with (
+        httpx.Client(
+            transport=httpx.MockTransport(lambda request: next(page_responses))
+        ) as page_http,
+        httpx.Client(transport=httpx.MockTransport(pushover_handler)) as pushover_http,
+        SqliteStateStore(config.database_path) as store,
+    ):
+        assert config.pushover is not None
+        notifier = Notifier(
+            config,
+            pushover_client=PushoverClient(config.pushover, client=pushover_http),
+        )
+        watcher = PageWatcher(
+            config,
+            PageFetcher(client=page_http),
+            store,
+            notifier,
+        )
+
+        baseline = watcher.check_once()
+        changed = watcher.check_once()
+        final_state = store.get(URL)
+
+    assert baseline.outcome is WatchOutcome.BASELINE_CREATED
+    assert changed.outcome is WatchOutcome.NOTIFICATION_SENT
+    assert changed.notification is not None
+    assert changed.notification.provider is NotificationProvider.PUSHOVER
+    assert changed.notification.request_id == "pushover-request-id"
+
+    assert len(pushover_requests) == 1
+    notification_fields = parse_qs(pushover_requests[0].content.decode())
+    assert notification_fields == {
+        "token": ["a" * 30],
+        "user": ["u" * 30],
+        "device": ["personal-iphone"],
+        "title": ["Page changed: shop.example.com"],
+        "message": ["Sold out"],
+        "priority": ["0"],
+        "url": [URL],
+        "url_title": ["View monitored page"],
+    }
+    assert final_state is not None
+    assert final_state.snapshot_text == "Sold out"
+    assert final_state.validators.etag == '"v2"'
+    assert final_state.last_notified_hash == final_state.snapshot_hash
