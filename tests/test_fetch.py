@@ -2,6 +2,7 @@ import httpx
 import pytest
 
 from pagewatcher.fetch import (
+    DEFAULT_USER_AGENT,
     FetchStatus,
     FetchValidators,
     PageFetcher,
@@ -19,7 +20,9 @@ def make_fetcher(handler, *, max_response_bytes: int = 2_000_000) -> PageFetcher
 def test_fetches_content_with_expected_headers_and_validators() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["accept"] == "text/html,application/xhtml+xml"
-        assert request.headers["user-agent"].startswith("pagewatcher/")
+        assert request.headers["user-agent"] == DEFAULT_USER_AGENT
+        assert request.headers["user-agent"].startswith("Mozilla/5.0 ")
+        assert "Chrome/153.0.0.0" in request.headers["user-agent"]
         return httpx.Response(
             200,
             content=b"<html>Available</html>",
