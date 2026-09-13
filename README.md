@@ -137,6 +137,7 @@ Optional variables:
 | `PAGEWATCHER_MAX_RESPONSE_BYTES` | `2000000` | Maximum downloaded or rendered document size |
 | `PAGEWATCHER_FETCH_MODE` | `http` | Page retrieval implementation: `http` or `chromium` |
 | `PAGEWATCHER_BROWSER_CHANNEL` | `chromium` | Browser distribution: `chromium` or `chrome` |
+| `PAGEWATCHER_BROWSER_SESSION_MODE` | `persistent` | Browser state lifetime: `persistent` or `ephemeral` |
 | `PAGEWATCHER_BROWSER_PROFILE_PATH` | `.pagewatcher-browser` | Persistent Chromium profile directory |
 | `PAGEWATCHER_BROWSER_HEADLESS` | `true` | Run Chromium without a visible window |
 | `PAGEWATCHER_BROWSER_SETTLE_SECONDS` | `2` | Additional rendering time after the page load event |
@@ -200,6 +201,7 @@ network behavior:
 ```sh
 PAGEWATCHER_FETCH_MODE=chromium
 PAGEWATCHER_BROWSER_CHANNEL=chromium
+PAGEWATCHER_BROWSER_SESSION_MODE=persistent
 PAGEWATCHER_BROWSER_PROFILE_PATH=.pagewatcher-browser
 PAGEWATCHER_BROWSER_HEADLESS=true
 PAGEWATCHER_BROWSER_SETTLE_SECONDS=2
@@ -213,12 +215,19 @@ dedicated profile and does not access the user's normal Chrome profile. Neither
 channel guarantees access to every site.
 
 Chromium mode navigates to the page, waits for its load event and the configured
-settle delay, then captures the rendered DOM. It maintains cookies and local storage
-in the profile directory between checks. The default profile directory is ignored by
-Git; protect custom profile locations as private data as well.
+settle delay, then captures the rendered DOM. In `persistent` session mode, it
+maintains cookies and local storage in the profile directory between checks. The
+default profile directory is ignored by Git; protect custom profile locations as
+private data as well.
 
-Only one running Chromium instance can use a profile directory. Give concurrent
-watchers separate profile paths. Chromium manages its own HTTP cache and conditional
+Use `PAGEWATCHER_BROWSER_SESSION_MODE=ephemeral` to launch a fresh temporary browser
+profile for every fetch. Ephemeral mode discards cookies, local storage, and cache
+after each check and ignores `PAGEWATCHER_BROWSER_PROFILE_PATH`. This can help when a
+reused browser profile becomes blocked, but it adds browser-startup overhead and is
+not suitable for pages that require login or other session state.
+
+Only one running persistent Chromium instance can use a profile directory. Give
+concurrent persistent watchers separate profile paths. Chromium manages its own HTTP
 requests, so Pagewatcher processes a rendered document on every browser-mode check.
 
 If a page fails only in headless mode, temporarily set
@@ -326,8 +335,9 @@ environment or secrets facility and arrange for automatic restart after unexpect
 process failures. If relying on the default `.env`, set the service's working
 directory to the repository or deployment directory. Otherwise, set
 `PAGEWATCHER_ENV_FILE` to an absolute path so service startup does not depend on its
-working directory. For Chromium mode, also prefer an absolute browser-profile path
-that is writable by the service account and is not shared by another process.
+working directory. For persistent Chromium sessions, also prefer an absolute
+browser-profile path that is writable by the service account and is not shared by
+another process.
 
 Alternatively, schedule `pagewatcher check` with cron, launchd, or a systemd timer.
 SQLite persistence makes independent invocations safe, provided only one invocation
