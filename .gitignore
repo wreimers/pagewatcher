@@ -16,4 +16,5 @@ htmlcov/
 
 # Default local state and editor artifacts
 /pagewatcher.db*
+/.pagewatcher-browser/
 .DS_Store
