@@ -1,22 +1,20 @@
 # pagewatcher
 
-Pagewatcher monitors the meaningful text of an HTML page and sends an Apple Push
-Notification service (APNs) alert when that text changes materially. It supports
-CSS-based content selection, noise removal, conditional HTTP requests, cumulative
-change detection, and durable SQLite state.
+Pagewatcher monitors the meaningful text of an HTML page and sends an alert through
+Apple Push Notification service (APNs) or Pushover when that text changes materially.
+It supports CSS-based content selection, noise removal, conditional HTTP requests,
+cumulative change detection, and durable SQLite state.
 
 The first successful check establishes a baseline and does not send a notification.
 
 ## Requirements
 
 - Python 3.12 or newer
-- An Apple Developer account
-- An APNs-enabled companion app installed on the receiving device
-- The app's bundle ID and current APNs device token
-- An APNs token-signing key (`.p8`), its key ID, and your Apple team ID
+- Credentials for either APNs or Pushover
 
-Pagewatcher sends notifications to an existing app/device registration. It does not
-create an iOS or macOS app or obtain a device token for you.
+APNs requires an Apple Developer account, an APNs-enabled companion app, and an Apple
+device registration. Pushover requires a Pushover account and the Pushover app on a
+receiving device.
 
 ## Installation
 
@@ -51,25 +49,56 @@ for example with `chmod 600 AuthKey_EXAMPLE.p8`.
 Apple's documentation covers [registering an app with APNs](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns)
 and [token-based provider authentication](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns).
 
+## Pushover setup
+
+1. Create or sign in to a Pushover account and install Pushover on the receiving
+   device.
+2. Register an application in the Pushover dashboard to obtain its 30-character
+   application API token.
+3. Copy your 30-character user key from the Pushover dashboard. A group key can be
+   used in its place.
+4. Optionally choose one device name to restrict delivery. Without one, Pushover
+   sends to all active devices associated with the user or group.
+
+Treat the application token and user key as secrets. Pushover's
+[Message API documentation](https://pushover.net/api) describes application
+registration, keys, devices, message limits, and account quotas.
+
 ## Configuration
 
 Pagewatcher reads configuration from environment variables.
 
-Required variables:
+Common required variables:
 
 | Variable | Description |
 | --- | --- |
 | `PAGEWATCHER_URL` | Absolute HTTP or HTTPS URL to monitor |
+
+Choose the provider with `PAGEWATCHER_NOTIFICATION_PROVIDER`. It defaults to `apns`
+for backward compatibility and accepts `apns` or `pushover`.
+
+Required when the provider is `apns`:
+
+| Variable | Description |
+| --- | --- |
 | `PAGEWATCHER_APNS_TEAM_ID` | Apple Developer team ID |
 | `PAGEWATCHER_APNS_KEY_ID` | APNs signing-key ID |
 | `PAGEWATCHER_APNS_BUNDLE_ID` | Bundle ID used as the APNs topic |
 | `PAGEWATCHER_APNS_DEVICE_TOKEN` | Device token issued to the companion app |
 | `PAGEWATCHER_APNS_PRIVATE_KEY_PATH` | Path to the APNs `.p8` signing key |
 
+Required when the provider is `pushover`:
+
+| Variable | Description |
+| --- | --- |
+| `PAGEWATCHER_PUSHOVER_APP_TOKEN` | 30-character Pushover application API token |
+| `PAGEWATCHER_PUSHOVER_USER_KEY` | 30-character Pushover user or group key |
+
 Optional variables:
 
 | Variable | Default | Description |
 | --- | ---: | --- |
+| `PAGEWATCHER_NOTIFICATION_PROVIDER` | `apns` | Notification service: `apns` or `pushover` |
 | `PAGEWATCHER_DATABASE_PATH` | `pagewatcher.db` | SQLite state-file path |
 | `PAGEWATCHER_POLL_INTERVAL_SECONDS` | `300` | Delay between checks in continuous mode |
 | `PAGEWATCHER_REQUEST_TIMEOUT_SECONDS` | `20` | HTTP request timeout |
@@ -79,24 +108,40 @@ Optional variables:
 | `PAGEWATCHER_SIMILARITY_THRESHOLD` | `0.98` | Relative materiality threshold from 0 to 1 |
 | `PAGEWATCHER_MINIMUM_CHANGED_CHARACTERS` | `20` | Absolute materiality threshold |
 | `PAGEWATCHER_APNS_USE_SANDBOX` | `true` | Use APNs sandbox rather than production |
+| `PAGEWATCHER_PUSHOVER_DEVICE` | empty | Pushover device name; empty sends to all devices |
 
 Boolean values accept `true`, `false`, `yes`, `no`, `on`, `off`, `1`, or `0`.
 Selector values are split at commas, so use each comma-separated entry as an
 independent selector.
 
-Example development configuration:
+Example APNs development configuration:
 
 ```sh
 export PAGEWATCHER_URL="https://example.com/products/widget"
 export PAGEWATCHER_INCLUDE_SELECTORS="main,#availability"
 export PAGEWATCHER_IGNORE_SELECTORS=".timestamp,.advertisement"
 
+export PAGEWATCHER_NOTIFICATION_PROVIDER="apns"
 export PAGEWATCHER_APNS_TEAM_ID="YOUR_TEAM_ID"
 export PAGEWATCHER_APNS_KEY_ID="YOUR_KEY_ID"
 export PAGEWATCHER_APNS_BUNDLE_ID="com.example.PagewatcherReceiver"
 export PAGEWATCHER_APNS_DEVICE_TOKEN="YOUR_DEVICE_TOKEN"
 export PAGEWATCHER_APNS_PRIVATE_KEY_PATH="/secure/path/AuthKey_EXAMPLE.p8"
 export PAGEWATCHER_APNS_USE_SANDBOX="true"
+```
+
+Equivalent Pushover configuration:
+
+```sh
+export PAGEWATCHER_URL="https://example.com/products/widget"
+export PAGEWATCHER_INCLUDE_SELECTORS="main,#availability"
+export PAGEWATCHER_IGNORE_SELECTORS=".timestamp,.advertisement"
+
+export PAGEWATCHER_NOTIFICATION_PROVIDER="pushover"
+export PAGEWATCHER_PUSHOVER_APP_TOKEN="YOUR_30_CHARACTER_APP_TOKEN"
+export PAGEWATCHER_PUSHOVER_USER_KEY="YOUR_30_CHARACTER_USER_KEY"
+# Optional:
+export PAGEWATCHER_PUSHOVER_DEVICE="personal-iphone"
 ```
 
 Validate the configuration without fetching the page or sending a notification:
@@ -119,7 +164,7 @@ Run continuously using the configured polling interval:
 pagewatcher watch
 ```
 
-Test APNs without fetching the monitored page:
+Test the selected provider without fetching the monitored page:
 
 ```sh
 pagewatcher test-notification
@@ -148,11 +193,13 @@ changed-character count. A change is material if either:
 
 An immaterial observation updates HTTP validators but does not replace the comparison
 baseline. Small changes therefore accumulate until their combined difference becomes
-material. A successful notification advances the baseline. If APNs fails, the old
-baseline and validators remain in place so the same change can be fetched and retried.
+material. A successful notification advances the baseline. If delivery fails, the
+old baseline and validators remain in place so the same change can be fetched and
+retried.
 
 The notification includes the monitored URL and up to 240 characters of normalized
-page text. The companion app is responsible for handling the custom top-level `url`
+page text. Pushover presents the URL as a supplementary "View monitored page" link.
+For APNs, the companion app is responsible for handling the custom top-level `url`
 field if tapping the notification should open the page.
 
 ## Choosing selectors
@@ -176,14 +223,19 @@ State is stored by URL in SQLite. It includes the comparison snapshot and hash, 
 Last-Modified value, last-check time, and last successfully notified hash. Database
 directories are created automatically.
 
-`pagewatcher watch` retries network timeouts, retryable HTTP responses, APNs rate
-limits, expired provider tokens, and APNs server failures after the normal polling
-interval. Configuration errors, invalid selectors, oversized pages, invalid APNs
-requests, and other permanent failures stop the process with a nonzero status.
+`pagewatcher watch` retries network timeouts, retryable page responses, APNs rate
+limits, expired APNs provider tokens, and APNs or Pushover server failures after the
+normal polling interval. Configuration errors, invalid selectors, oversized pages,
+invalid provider requests, exhausted Pushover quotas, and other permanent failures
+stop the process with a nonzero status.
 
 APNs collapse identifiers are derived from the snapshot hash. Retries for the same
 snapshot therefore use the same identifier, reducing duplicate visible alerts if a
 request was accepted but its response was lost.
+
+Pushover does not offer an equivalent collapse identifier for normal-priority
+messages. If Pushover accepts a request but its response is lost, a later retry can
+produce a duplicate notification.
 
 ## Running unattended
 
@@ -205,9 +257,9 @@ uses a given database at a time.
 
 - Pagewatcher downloads server-returned HTML; it does not execute JavaScript. For a
   client-rendered page, monitor a stable server endpoint or API instead.
-- One process is configured for one URL and one device token. Separate processes and
-  database files can monitor additional URLs or devices.
-- APNs acceptance does not guarantee delivery. Device connectivity, notification
-  permissions, focus settings, and APNs delivery policy still apply.
+- One process is configured for one URL and one APNs token or Pushover recipient.
+  Separate processes and database files can monitor additional URLs or recipients.
+- Provider acceptance does not guarantee delivery. Device connectivity, notification
+  permissions, focus settings, and provider delivery policy still apply.
 - Treat monitored page content as sensitive if it may appear on the receiving
   device's lock screen.
