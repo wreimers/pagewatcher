@@ -1,5 +1,5 @@
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pytest
 from playwright.sync_api import Error as PlaywrightError
@@ -107,6 +107,67 @@ def test_reuses_browser_page_across_fetches(tmp_path: Path) -> None:
     manager.start.assert_called_once_with()
     chromium.launch_persistent_context.assert_called_once()
     assert page.goto.call_count == 2
+
+
+def test_ephemeral_mode_uses_fresh_temporary_context_for_each_fetch(
+    tmp_path: Path,
+) -> None:
+    fetcher, factory, manager, chromium, first_page = make_fetcher(
+        tmp_path,
+        session_mode=" Ephemeral ",
+    )
+    first_context = chromium.launch_persistent_context.return_value
+    second_page = Mock()
+    second_page.url = "https://example.com/other"
+    second_page.goto.return_value = make_response()
+    second_page.content.return_value = "<html>Other</html>"
+    second_context = Mock()
+    second_context.pages = []
+    second_context.new_page.return_value = second_page
+    chromium.launch_persistent_context.side_effect = [
+        first_context,
+        second_context,
+    ]
+
+    first_result = fetcher.fetch(URL)
+    second_result = fetcher.fetch("https://example.com/other")
+
+    assert first_result.content == b"<html><body>Available</body></html>"
+    assert second_result.content == b"<html>Other</html>"
+    assert chromium.launch_persistent_context.call_args_list == [
+        call(
+            "",
+            channel="chromium",
+            headless=True,
+            accept_downloads=False,
+        ),
+        call(
+            "",
+            channel="chromium",
+            headless=True,
+            accept_downloads=False,
+        ),
+    ]
+    first_context.close.assert_called_once_with()
+    second_context.close.assert_called_once_with()
+    factory.assert_called_once_with()
+    manager.start.assert_called_once_with()
+    assert not (tmp_path / "browser-profile").exists()
+    assert first_page.goto.call_count == 1
+
+
+def test_ephemeral_mode_closes_context_after_fetch_error(tmp_path: Path) -> None:
+    fetcher, _, _, chromium, _ = make_fetcher(
+        tmp_path,
+        response=make_response(403),
+        session_mode="ephemeral",
+    )
+    context = chromium.launch_persistent_context.return_value
+
+    with pytest.raises(PermanentFetchError):
+        fetcher.fetch(URL)
+
+    context.close.assert_called_once_with()
 
 
 def test_uses_existing_persistent_context_page(tmp_path: Path) -> None:
@@ -235,6 +296,7 @@ def test_rejects_rendered_content_larger_than_limit(tmp_path: Path) -> None:
         ({"max_response_bytes": 0}, "max_response_bytes"),
         ({"settle_seconds": -1}, "settle_seconds"),
         ({"channel": " "}, "channel"),
+        ({"session_mode": "incognito"}, "session_mode"),
     ],
 )
 def test_validates_fetcher_settings(
