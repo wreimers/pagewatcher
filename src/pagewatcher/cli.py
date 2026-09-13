@@ -13,7 +13,8 @@ from datetime import datetime
 from jwt import PyJWTError
 
 from pagewatcher.apns import ApnsError, TransientApnsError
-from pagewatcher.config import ConfigError, WatcherConfig
+from pagewatcher.browser_fetch import BrowserPageFetcher
+from pagewatcher.config import ConfigError, FetchMode, WatcherConfig
 from pagewatcher.fetch import FetchError, PageFetcher, TransientFetchError
 from pagewatcher.html import HtmlNormalizationError
 from pagewatcher.notifier import Notifier
@@ -82,14 +83,26 @@ def _parser() -> argparse.ArgumentParser:
 @contextmanager
 def _open_watcher(config: WatcherConfig) -> Iterator[PageWatcher]:
     with (
-        PageFetcher(
-            timeout_seconds=config.request_timeout_seconds,
-            max_response_bytes=config.max_response_bytes,
-        ) as fetcher,
+        _create_fetcher(config) as fetcher,
         SqliteStateStore(config.database_path) as store,
         Notifier(config) as notifier,
     ):
         yield PageWatcher(config, fetcher, store, notifier)
+
+
+def _create_fetcher(config: WatcherConfig) -> PageFetcher | BrowserPageFetcher:
+    if config.fetch_mode is FetchMode.CHROMIUM:
+        return BrowserPageFetcher(
+            profile_path=config.browser_profile_path,
+            timeout_seconds=config.request_timeout_seconds,
+            max_response_bytes=config.max_response_bytes,
+            headless=config.browser_headless,
+            settle_seconds=config.browser_settle_seconds,
+        )
+    return PageFetcher(
+        timeout_seconds=config.request_timeout_seconds,
+        max_response_bytes=config.max_response_bytes,
+    )
 
 
 def _watch_forever(watcher: PageWatcher, interval_seconds: float) -> None:

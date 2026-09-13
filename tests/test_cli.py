@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, Mock
 
@@ -9,6 +10,7 @@ from pagewatcher.change import assess_change
 from pagewatcher.config import (
     ApnsConfig,
     ConfigError,
+    FetchMode,
     NotificationProvider,
     PushoverConfig,
     WatcherConfig,
@@ -256,3 +258,34 @@ def test_open_watcher_constructs_configured_notifier(
     )
     store_constructor.assert_called_once_with(config.database_path)
     notifier_constructor.assert_called_once_with(config)
+
+
+def test_create_fetcher_constructs_configured_browser_fetcher(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = replace(
+        make_pushover_config(),
+        fetch_mode=FetchMode.CHROMIUM,
+        browser_profile_path=Path("browser-state"),
+        browser_headless=False,
+        browser_settle_seconds=3.5,
+        request_timeout_seconds=45,
+        max_response_bytes=8192,
+    )
+    fetcher = Mock()
+    browser_constructor = Mock(return_value=fetcher)
+    http_constructor = Mock()
+    monkeypatch.setattr(cli, "BrowserPageFetcher", browser_constructor)
+    monkeypatch.setattr(cli, "PageFetcher", http_constructor)
+
+    result = cli._create_fetcher(config)
+
+    assert result is fetcher
+    browser_constructor.assert_called_once_with(
+        profile_path=Path("browser-state"),
+        timeout_seconds=45,
+        max_response_bytes=8192,
+        headless=False,
+        settle_seconds=3.5,
+    )
+    http_constructor.assert_not_called()
