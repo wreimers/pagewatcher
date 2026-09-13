@@ -9,6 +9,7 @@ from pagewatcher import cli
 from pagewatcher.change import assess_change
 from pagewatcher.config import (
     ApnsConfig,
+    BrowserChannel,
     ConfigError,
     FetchMode,
     NotificationProvider,
@@ -266,6 +267,7 @@ def test_create_fetcher_constructs_configured_browser_fetcher(
     config = replace(
         make_pushover_config(),
         fetch_mode=FetchMode.CHROMIUM,
+        browser_channel=BrowserChannel.CHROME,
         browser_profile_path=Path("browser-state"),
         browser_headless=False,
         browser_settle_seconds=3.5,
@@ -287,5 +289,6 @@ def test_create_fetcher_constructs_configured_browser_fetcher(
         max_response_bytes=8192,
         headless=False,
         settle_seconds=3.5,
+        channel="chrome",
     )
     http_constructor.assert_not_called()

@@ -98,6 +98,7 @@ def _create_fetcher(config: WatcherConfig) -> PageFetcher | BrowserPageFetcher:
             max_response_bytes=config.max_response_bytes,
             headless=config.browser_headless,
             settle_seconds=config.browser_settle_seconds,
+            channel=config.browser_channel.value,
         )
     return PageFetcher(
         timeout_seconds=config.request_timeout_seconds,
