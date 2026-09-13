@@ -38,6 +38,7 @@ class BrowserPageFetcher:
         max_response_bytes: int = 2_000_000,
         headless: bool = True,
         settle_seconds: float = 2.0,
+        channel: str = "chromium",
         playwright_factory: Callable[[], PlaywrightContextManager] = sync_playwright,
     ) -> None:
         if timeout_seconds <= 0:
@@ -46,12 +47,15 @@ class BrowserPageFetcher:
             raise ValueError("max_response_bytes must be greater than zero")
         if settle_seconds < 0:
             raise ValueError("settle_seconds must not be negative")
+        if not channel.strip():
+            raise ValueError("channel must not be empty")
 
         self.profile_path = Path(profile_path).expanduser()
         self.timeout_seconds = timeout_seconds
         self.max_response_bytes = max_response_bytes
         self.headless = headless
         self.settle_seconds = settle_seconds
+        self.channel = channel.strip().lower()
         self._playwright_factory = playwright_factory
         self._manager: PlaywrightContextManager | None = None
         self._playwright: Playwright | None = None
@@ -139,7 +143,7 @@ class BrowserPageFetcher:
             self._playwright = playwright
             context = playwright.chromium.launch_persistent_context(
                 self.profile_path,
-                channel="chromium",
+                channel=self.channel,
                 headless=self.headless,
                 accept_downloads=False,
             )
@@ -149,9 +153,12 @@ class BrowserPageFetcher:
             manager.stop()
             self._manager = None
             self._playwright = None
+            if self.channel == "chromium":
+                guidance = "run 'python -m playwright install chromium'"
+            else:
+                guidance = f"ensure browser channel '{self.channel}' is installed"
             raise PermanentFetchError(
-                "could not start Chromium; run "
-                f"'python -m playwright install chromium': {error}"
+                f"could not start browser; {guidance}: {error}"
             ) from error
         return self._page
 

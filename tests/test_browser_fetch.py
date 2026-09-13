@@ -133,6 +133,22 @@ def test_skips_settle_wait_when_configured_as_zero(tmp_path: Path) -> None:
     page.wait_for_timeout.assert_not_called()
 
 
+def test_uses_configured_browser_channel(tmp_path: Path) -> None:
+    fetcher, _, _, chromium, _ = make_fetcher(
+        tmp_path,
+        channel=" Chrome ",
+    )
+
+    fetcher.fetch(URL)
+
+    chromium.launch_persistent_context.assert_called_once_with(
+        tmp_path / "browser-profile",
+        channel="chrome",
+        headless=True,
+        accept_downloads=False,
+    )
+
+
 @pytest.mark.parametrize("status_code", [408, 425, 429, 500, 503])
 def test_classifies_retryable_http_statuses_as_transient(
     tmp_path: Path,
@@ -191,6 +207,16 @@ def test_reports_browser_start_failure_as_permanent(tmp_path: Path) -> None:
     manager.stop.assert_called_once_with()
 
 
+def test_reports_configured_channel_in_start_failure(tmp_path: Path) -> None:
+    fetcher, _, _, chromium, _ = make_fetcher(tmp_path, channel="chrome")
+    chromium.launch_persistent_context.side_effect = PlaywrightError(
+        "Executable doesn't exist"
+    )
+
+    with pytest.raises(PermanentFetchError, match="channel 'chrome' is installed"):
+        fetcher.fetch(URL)
+
+
 def test_rejects_rendered_content_larger_than_limit(tmp_path: Path) -> None:
     fetcher, _, _, _, _ = make_fetcher(
         tmp_path,
@@ -208,6 +234,7 @@ def test_rejects_rendered_content_larger_than_limit(tmp_path: Path) -> None:
         ({"timeout_seconds": 0}, "timeout_seconds"),
         ({"max_response_bytes": 0}, "max_response_bytes"),
         ({"settle_seconds": -1}, "settle_seconds"),
+        ({"channel": " "}, "channel"),
     ],
 )
 def test_validates_fetcher_settings(
