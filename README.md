@@ -27,6 +27,17 @@ source venv/bin/activate
 python -m pip install -e ".[dev]"
 ```
 
+Create local configuration from the tracked template, replace its placeholder URL
+and credentials, then validate it:
+
+```sh
+cp .env.example .env
+pagewatcher validate
+```
+
+The repository ignores `.env`, environment-specific `.env.*` files, and APNs `.p8`
+keys. Do not force-add files containing credentials.
+
 Run the test suite:
 
 ```sh
@@ -66,7 +77,20 @@ registration, keys, devices, message limits, and account quotas.
 
 ## Configuration
 
-Pagewatcher reads configuration from environment variables.
+Pagewatcher automatically reads `.env` from the current working directory when the
+file exists. Values already present in the process environment take precedence over
+values from the file. Parsing does not modify the process environment.
+
+To use a different file, set `PAGEWATCHER_ENV_FILE` outside the dotenv file:
+
+```sh
+PAGEWATCHER_ENV_FILE=/secure/path/pagewatcher.env pagewatcher validate
+```
+
+The default `.env` file is optional. An explicitly selected file must exist or
+Pagewatcher reports a configuration error. The format supports quoted values,
+comments, `export` prefixes, multiline values, and variable expansion through
+[`python-dotenv`](https://pypi.org/project/python-dotenv/).
 
 Common required variables:
 
@@ -98,6 +122,7 @@ Optional variables:
 
 | Variable | Default | Description |
 | --- | ---: | --- |
+| `PAGEWATCHER_ENV_FILE` | `./.env` | Dotenv path selected before configuration is loaded |
 | `PAGEWATCHER_NOTIFICATION_PROVIDER` | `apns` | Notification service: `apns` or `pushover` |
 | `PAGEWATCHER_DATABASE_PATH` | `pagewatcher.db` | SQLite state-file path |
 | `PAGEWATCHER_POLL_INTERVAL_SECONDS` | `300` | Delay between checks in continuous mode |
@@ -114,7 +139,8 @@ Boolean values accept `true`, `false`, `yes`, `no`, `on`, `off`, `1`, or `0`.
 Selector values are split at commas, so use each comma-separated entry as an
 independent selector.
 
-Example APNs development configuration:
+Settings may also be exported directly instead of stored in a file. For example,
+this is an APNs development configuration:
 
 ```sh
 export PAGEWATCHER_URL="https://example.com/products/widget"
@@ -246,8 +272,11 @@ For a long-running process, configure your service manager to run:
 ```
 
 Provide the required environment variables through the service manager's protected
-environment or secrets facility, set the working directory explicitly, and arrange
-for automatic restart after unexpected process failures.
+environment or secrets facility and arrange for automatic restart after unexpected
+process failures. If relying on the default `.env`, set the service's working
+directory to the repository or deployment directory. Otherwise, set
+`PAGEWATCHER_ENV_FILE` to an absolute path so service startup does not depend on its
+working directory.
 
 Alternatively, schedule `pagewatcher check` with cron, launchd, or a systemd timer.
 SQLite persistence makes independent invocations safe, provided only one invocation
