@@ -6,17 +6,29 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
+from typing import Protocol
 from urllib.parse import urlparse
 
 from pagewatcher.apns import ApnsClient
 from pagewatcher.change import ChangeAssessment, assess_change
 from pagewatcher.config import WatcherConfig
-from pagewatcher.fetch import FetchStatus, PageFetcher
+from pagewatcher.fetch import FetchResult, FetchStatus, FetchValidators
 from pagewatcher.html import normalize_html
 from pagewatcher.notifier import NotificationResponse, NotificationSender, Notifier
 from pagewatcher.store import SqliteStateStore
 
 MAX_NOTIFICATION_BODY_CHARACTERS = 240
+
+
+class PageFetchClient(Protocol):
+    """Structural interface required by the watcher orchestration layer."""
+
+    def fetch(
+        self,
+        url: str,
+        *,
+        validators: FetchValidators | None = None,
+    ) -> FetchResult: ...
 
 
 class WatchOutcome(StrEnum):
@@ -49,7 +61,7 @@ class PageWatcher:
     def __init__(
         self,
         config: WatcherConfig,
-        fetcher: PageFetcher,
+        fetcher: PageFetchClient,
         store: SqliteStateStore,
         notifier: NotificationSender | ApnsClient,
         *,

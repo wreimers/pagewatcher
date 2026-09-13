@@ -8,11 +8,16 @@ import pytest
 from pagewatcher.apns import TransientApnsError
 from pagewatcher.change import ChangeReason
 from pagewatcher.config import ApnsConfig, NotificationProvider, WatcherConfig
-from pagewatcher.fetch import FetchResult, FetchStatus, FetchValidators, PageFetcher
+from pagewatcher.fetch import FetchResult, FetchStatus, FetchValidators
 from pagewatcher.html import HtmlNormalizationError
 from pagewatcher.notifier import NotificationResponse, NotificationSender
 from pagewatcher.store import SqliteStateStore
-from pagewatcher.watcher import PageWatcher, WatcherError, WatchOutcome
+from pagewatcher.watcher import (
+    PageFetchClient,
+    PageWatcher,
+    WatcherError,
+    WatchOutcome,
+)
 
 
 NOW = datetime(2026, 9, 12, 20, 0, tzinfo=timezone.utc)
@@ -54,7 +59,7 @@ def make_watcher(
     store: SqliteStateStore,
     fetch_result: FetchResult,
 ) -> tuple[PageWatcher, Mock, Mock]:
-    fetcher = Mock(spec=PageFetcher)
+    fetcher = Mock(spec=PageFetchClient)
     fetcher.fetch.return_value = fetch_result
     notifier = Mock(spec=NotificationSender)
     notifier.send_alert.return_value = NotificationResponse(
@@ -68,6 +73,32 @@ def make_watcher(
         clock=lambda: NOW,
     )
     return watcher, fetcher, notifier
+
+
+def test_accepts_structural_fetch_client(tmp_path: Path) -> None:
+    class StaticFetchClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, FetchValidators | None]] = []
+
+        def fetch(
+            self,
+            url: str,
+            *,
+            validators: FetchValidators | None = None,
+        ) -> FetchResult:
+            self.calls.append((url, validators))
+            return content_result("<main>In stock</main>")
+
+    config = make_config(tmp_path)
+    fetcher = StaticFetchClient()
+    notifier = Mock(spec=NotificationSender)
+    with SqliteStateStore(":memory:") as store:
+        watcher = PageWatcher(config, fetcher, store, notifier, clock=lambda: NOW)
+
+        result = watcher.check_once()
+
+    assert result.outcome is WatchOutcome.BASELINE_CREATED
+    assert fetcher.calls == [(URL, None)]
 
 
 def test_first_check_creates_baseline_without_notification(tmp_path: Path) -> None:
