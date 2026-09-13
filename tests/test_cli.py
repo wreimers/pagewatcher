@@ -1,14 +1,21 @@
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
 from pagewatcher import cli
-from pagewatcher.apns import ApnsResponse, TransientApnsError
 from pagewatcher.change import assess_change
-from pagewatcher.config import ApnsConfig, ConfigError, WatcherConfig
+from pagewatcher.config import (
+    ApnsConfig,
+    ConfigError,
+    NotificationProvider,
+    PushoverConfig,
+    WatcherConfig,
+)
 from pagewatcher.fetch import TransientFetchError
+from pagewatcher.notifier import NotificationResponse
+from pagewatcher.pushover import TransientPushoverError
 from pagewatcher.watcher import WatchOutcome, WatchResult
 
 
@@ -27,6 +34,15 @@ def make_config(tmp_path: Path) -> WatcherConfig:
             device_token="secret-device-token",
             private_key_path=private_key,
         ),
+        poll_interval_seconds=15,
+    )
+
+
+def make_pushover_config() -> WatcherConfig:
+    return WatcherConfig(
+        url=URL,
+        notification_provider=NotificationProvider.PUSHOVER,
+        pushover=PushoverConfig(app_token="a" * 30, user_key="u" * 30),
         poll_interval_seconds=15,
     )
 
@@ -156,7 +172,7 @@ def test_watch_retries_transient_errors_and_prints_later_success(
     set_config(monkeypatch, config)
     watcher = Mock()
     watcher.check_once.side_effect = [
-        TransientApnsError("service unavailable"),
+        TransientPushoverError("service unavailable"),
         WatchResult(WatchOutcome.HTTP_NOT_MODIFIED, URL),
     ]
     set_watcher(monkeypatch, watcher)
@@ -174,27 +190,58 @@ def test_watch_retries_transient_errors_and_prints_later_success(
 
 
 def test_test_notification_sends_expected_alert(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config = make_config(tmp_path)
+    config = make_pushover_config()
     set_config(monkeypatch, config)
     notifier = Mock()
     notifier.__enter__ = Mock(return_value=notifier)
     notifier.__exit__ = Mock(return_value=None)
-    notifier.send_alert.return_value = ApnsResponse("request-id", None)
+    notifier.send_alert.return_value = NotificationResponse(
+        NotificationProvider.PUSHOVER, "request-id"
+    )
     constructor = Mock(return_value=notifier)
-    monkeypatch.setattr(cli, "ApnsClient", constructor)
+    monkeypatch.setattr(cli, "Notifier", constructor)
 
     status = cli.main(["test-notification"])
 
     assert status == 0
-    constructor.assert_called_once_with(config.apns)
+    constructor.assert_called_once_with(config)
     notifier.send_alert.assert_called_once_with(
         "Pagewatcher test",
-        "APNs notifications are configured correctly.",
+        "Notifications are configured correctly.",
         url=URL,
-        collapse_id="pagewatcher-test",
+        deduplication_key="pagewatcher-test",
     )
-    assert "apns-id: request-id" in capsys.readouterr().out
+    assert "accepted by pushover (request-id: request-id)" in capsys.readouterr().out
+
+
+def test_open_watcher_constructs_configured_notifier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = make_pushover_config()
+    fetcher = MagicMock()
+    fetcher.__enter__.return_value = fetcher
+    store = MagicMock()
+    store.__enter__.return_value = store
+    notifier = MagicMock()
+    notifier.__enter__.return_value = notifier
+    fetcher_constructor = Mock(return_value=fetcher)
+    store_constructor = Mock(return_value=store)
+    notifier_constructor = Mock(return_value=notifier)
+    monkeypatch.setattr(cli, "PageFetcher", fetcher_constructor)
+    monkeypatch.setattr(cli, "SqliteStateStore", store_constructor)
+    monkeypatch.setattr(cli, "Notifier", notifier_constructor)
+
+    with cli._open_watcher(config) as watcher:
+        assert watcher.fetcher is fetcher
+        assert watcher.store is store
+        assert watcher.notifier is notifier
+
+    fetcher_constructor.assert_called_once_with(
+        timeout_seconds=config.request_timeout_seconds,
+        max_response_bytes=config.max_response_bytes,
+    )
+    store_constructor.assert_called_once_with(config.database_path)
+    notifier_constructor.assert_called_once_with(config)

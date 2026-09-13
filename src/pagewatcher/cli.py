@@ -11,10 +11,12 @@ from contextlib import contextmanager
 
 from jwt import PyJWTError
 
-from pagewatcher.apns import ApnsClient, ApnsError, TransientApnsError
+from pagewatcher.apns import ApnsError, TransientApnsError
 from pagewatcher.config import ConfigError, WatcherConfig
 from pagewatcher.fetch import FetchError, PageFetcher, TransientFetchError
 from pagewatcher.html import HtmlNormalizationError
+from pagewatcher.notifier import Notifier
+from pagewatcher.pushover import PushoverError, TransientPushoverError
 from pagewatcher.store import SqliteStateStore
 from pagewatcher.watcher import PageWatcher, WatcherError, WatchResult
 
@@ -50,6 +52,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         FetchError,
         HtmlNormalizationError,
         ApnsError,
+        PushoverError,
         WatcherError,
         PyJWTError,
         sqlite3.Error,
@@ -62,7 +65,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pagewatcher",
-        description="Monitor an HTML page and notify through APNs when it changes.",
+        description="Monitor an HTML page and notify when it changes.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("validate", help="validate environment configuration")
@@ -70,7 +73,7 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser("watch", help="check continuously at the configured interval")
     commands.add_parser(
         "test-notification",
-        help="send a test APNs notification without fetching the page",
+        help="send a test notification without fetching the page",
     )
     return parser
 
@@ -83,7 +86,7 @@ def _open_watcher(config: WatcherConfig) -> Iterator[PageWatcher]:
             max_response_bytes=config.max_response_bytes,
         ) as fetcher,
         SqliteStateStore(config.database_path) as store,
-        ApnsClient(config.apns) as notifier,
+        Notifier(config) as notifier,
     ):
         yield PageWatcher(config, fetcher, store, notifier)
 
@@ -92,21 +95,28 @@ def _watch_forever(watcher: PageWatcher, interval_seconds: float) -> None:
     while True:
         try:
             _print_result(watcher.check_once())
-        except (TransientFetchError, TransientApnsError) as error:
+        except (
+            TransientFetchError,
+            TransientApnsError,
+            TransientPushoverError,
+        ) as error:
             print(f"Transient error; will retry: {error}", file=sys.stderr)
         time.sleep(interval_seconds)
 
 
 def _send_test_notification(config: WatcherConfig) -> None:
-    with ApnsClient(config.apns) as notifier:
+    with Notifier(config) as notifier:
         response = notifier.send_alert(
             "Pagewatcher test",
-            "APNs notifications are configured correctly.",
+            "Notifications are configured correctly.",
             url=config.url,
-            collapse_id="pagewatcher-test",
+            deduplication_key="pagewatcher-test",
         )
-    identifier = response.apns_id or "not provided"
-    print(f"Test notification accepted by APNs (apns-id: {identifier})")
+    identifier = response.request_id or "not provided"
+    print(
+        f"Test notification accepted by {response.provider.value} "
+        f"(request-id: {identifier})"
+    )
 
 
 def _print_result(result: WatchResult) -> None:
