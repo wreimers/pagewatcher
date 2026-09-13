@@ -8,7 +8,7 @@ import sys
 import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import datetime
 
 from jwt import PyJWTError
 
@@ -106,9 +106,7 @@ def _watch_forever(watcher: PageWatcher, interval_seconds: float) -> None:
 
 
 def _send_test_notification(config: WatcherConfig) -> None:
-    timestamp = datetime.now(UTC).isoformat(timespec="seconds").replace(
-        "+00:00", "Z"
-    )
+    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
     with Notifier(config) as notifier:
         response = notifier.send_alert(
             "Pagewatcher test",
