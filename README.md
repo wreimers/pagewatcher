@@ -10,7 +10,7 @@ The first successful check establishes a baseline and does not send a notificati
 ## Requirements
 
 - Python 3.12 or newer
-- Chromium installed through Playwright when using Chromium fetch mode
+- Playwright-managed Chromium or installed Google Chrome when using browser mode
 - Credentials for either APNs or Pushover
 
 APNs requires an Apple Developer account, an APNs-enabled companion app, and an Apple
@@ -30,8 +30,9 @@ python -m playwright install chromium
 ```
 
 Playwright's Python package and its managed Chromium binary are installed
-separately. Run the browser-install command again after upgrading Playwright if it
-reports that a newer browser build is required.
+separately. The browser-install command is required for the default `chromium`
+channel but may be omitted when using only an existing Google Chrome installation.
+Run it again after upgrading Playwright if a newer managed browser build is required.
 
 Create local configuration from the tracked template, replace its placeholder URL
 and credentials, then validate it:
@@ -135,6 +136,7 @@ Optional variables:
 | `PAGEWATCHER_REQUEST_TIMEOUT_SECONDS` | `20` | HTTP request or browser-navigation timeout |
 | `PAGEWATCHER_MAX_RESPONSE_BYTES` | `2000000` | Maximum downloaded or rendered document size |
 | `PAGEWATCHER_FETCH_MODE` | `http` | Page retrieval implementation: `http` or `chromium` |
+| `PAGEWATCHER_BROWSER_CHANNEL` | `chromium` | Browser distribution: `chromium` or `chrome` |
 | `PAGEWATCHER_BROWSER_PROFILE_PATH` | `.pagewatcher-browser` | Persistent Chromium profile directory |
 | `PAGEWATCHER_BROWSER_HEADLESS` | `true` | Run Chromium without a visible window |
 | `PAGEWATCHER_BROWSER_SETTLE_SECONDS` | `2` | Additional rendering time after the page load event |
@@ -197,10 +199,18 @@ network behavior:
 
 ```sh
 PAGEWATCHER_FETCH_MODE=chromium
+PAGEWATCHER_BROWSER_CHANNEL=chromium
 PAGEWATCHER_BROWSER_PROFILE_PATH=.pagewatcher-browser
 PAGEWATCHER_BROWSER_HEADLESS=true
 PAGEWATCHER_BROWSER_SETTLE_SECONDS=2
 ```
+
+The `chromium` channel uses the browser installed by
+`python -m playwright install chromium`. The `chrome` channel uses Google Chrome
+installed on the machine and can behave differently under a site's bot-management
+policy. Select it with `PAGEWATCHER_BROWSER_CHANNEL=chrome`; Pagewatcher still uses a
+dedicated profile and does not access the user's normal Chrome profile. Neither
+channel guarantees access to every site.
 
 Chromium mode navigates to the page, waits for its load event and the configured
 settle delay, then captures the rendered DOM. It maintains cookies and local storage

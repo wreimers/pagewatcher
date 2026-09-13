@@ -114,8 +114,8 @@ class BrowserPageFetcher:
             self._context = None
             self._page = None
             try:
-                if self._manager is not None:
-                    self._manager.stop()
+                if self._playwright is not None:
+                    self._playwright.stop()
             finally:
                 self._manager = None
                 self._playwright = None
@@ -150,7 +150,8 @@ class BrowserPageFetcher:
             self._context = context
             self._page = context.pages[0] if context.pages else context.new_page()
         except PlaywrightError as error:
-            manager.stop()
+            if self._playwright is not None:
+                self._playwright.stop()
             self._manager = None
             self._playwright = None
             if self.channel == "chromium":

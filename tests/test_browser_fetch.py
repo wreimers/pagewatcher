@@ -204,7 +204,7 @@ def test_reports_browser_start_failure_as_permanent(tmp_path: Path) -> None:
     with pytest.raises(PermanentFetchError, match="playwright install chromium"):
         fetcher.fetch(URL)
 
-    manager.stop.assert_called_once_with()
+    manager.start.return_value.stop.assert_called_once_with()
 
 
 def test_reports_configured_channel_in_start_failure(tmp_path: Path) -> None:
@@ -254,7 +254,7 @@ def test_context_manager_closes_context_and_driver(tmp_path: Path) -> None:
         fetcher.fetch(URL)
 
     context.close.assert_called_once_with()
-    manager.stop.assert_called_once_with()
+    manager.start.return_value.stop.assert_called_once_with()
 
 
 def test_close_without_starting_is_safe(tmp_path: Path) -> None:
@@ -263,4 +263,4 @@ def test_close_without_starting_is_safe(tmp_path: Path) -> None:
     fetcher.close()
 
     factory.assert_not_called()
-    manager.stop.assert_not_called()
+    manager.start.return_value.stop.assert_not_called()
