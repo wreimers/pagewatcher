@@ -10,7 +10,7 @@ The first successful check establishes a baseline and does not send a notificati
 ## Requirements
 
 - Python 3.12 or newer
-- Chromium installed through Playwright
+- Chromium installed through Playwright when using Chromium fetch mode
 - Credentials for either APNs or Pushover
 
 APNs requires an Apple Developer account, an APNs-enabled companion app, and an Apple
@@ -132,8 +132,12 @@ Optional variables:
 | `PAGEWATCHER_NOTIFICATION_PROVIDER` | `apns` | Notification service: `apns` or `pushover` |
 | `PAGEWATCHER_DATABASE_PATH` | `pagewatcher.db` | SQLite state-file path |
 | `PAGEWATCHER_POLL_INTERVAL_SECONDS` | `300` | Delay between checks in continuous mode |
-| `PAGEWATCHER_REQUEST_TIMEOUT_SECONDS` | `20` | HTTP request timeout |
-| `PAGEWATCHER_MAX_RESPONSE_BYTES` | `2000000` | Maximum downloaded response size |
+| `PAGEWATCHER_REQUEST_TIMEOUT_SECONDS` | `20` | HTTP request or browser-navigation timeout |
+| `PAGEWATCHER_MAX_RESPONSE_BYTES` | `2000000` | Maximum downloaded or rendered document size |
+| `PAGEWATCHER_FETCH_MODE` | `http` | Page retrieval implementation: `http` or `chromium` |
+| `PAGEWATCHER_BROWSER_PROFILE_PATH` | `.pagewatcher-browser` | Persistent Chromium profile directory |
+| `PAGEWATCHER_BROWSER_HEADLESS` | `true` | Run Chromium without a visible window |
+| `PAGEWATCHER_BROWSER_SETTLE_SECONDS` | `2` | Additional rendering time after the page load event |
 | `PAGEWATCHER_INCLUDE_SELECTORS` | empty | Comma-separated CSS selectors to monitor |
 | `PAGEWATCHER_IGNORE_SELECTORS` | `script,style,noscript,template` | Comma-separated CSS selectors to remove |
 | `PAGEWATCHER_SIMILARITY_THRESHOLD` | `0.98` | Relative materiality threshold from 0 to 1 |
@@ -181,6 +185,36 @@ Validate the configuration without fetching the page or sending a notification:
 ```sh
 pagewatcher validate
 ```
+
+## Fetching modes
+
+The default `http` mode makes lightweight HTTP/2 requests and uses ETag and
+Last-Modified validators when the server supplies them. It is appropriate for
+server-rendered pages that do not reject non-browser clients.
+
+Use Chromium for pages that require JavaScript, browser cookies, or genuine browser
+network behavior:
+
+```sh
+PAGEWATCHER_FETCH_MODE=chromium
+PAGEWATCHER_BROWSER_PROFILE_PATH=.pagewatcher-browser
+PAGEWATCHER_BROWSER_HEADLESS=true
+PAGEWATCHER_BROWSER_SETTLE_SECONDS=2
+```
+
+Chromium mode navigates to the page, waits for its load event and the configured
+settle delay, then captures the rendered DOM. It maintains cookies and local storage
+in the profile directory between checks. The default profile directory is ignored by
+Git; protect custom profile locations as private data as well.
+
+Only one running Chromium instance can use a profile directory. Give concurrent
+watchers separate profile paths. Chromium manages its own HTTP cache and conditional
+requests, so Pagewatcher processes a rendered document on every browser-mode check.
+
+If a page fails only in headless mode, temporarily set
+`PAGEWATCHER_BROWSER_HEADLESS=false` to observe it in a normal browser window. A
+headed browser requires an interactive graphical session and is generally unsuitable
+for a background service. Pagewatcher does not solve or bypass CAPTCHAs.
 
 ## Usage
 
@@ -282,7 +316,8 @@ environment or secrets facility and arrange for automatic restart after unexpect
 process failures. If relying on the default `.env`, set the service's working
 directory to the repository or deployment directory. Otherwise, set
 `PAGEWATCHER_ENV_FILE` to an absolute path so service startup does not depend on its
-working directory.
+working directory. For Chromium mode, also prefer an absolute browser-profile path
+that is writable by the service account and is not shared by another process.
 
 Alternatively, schedule `pagewatcher check` with cron, launchd, or a systemd timer.
 SQLite persistence makes independent invocations safe, provided only one invocation
@@ -290,8 +325,11 @@ uses a given database at a time.
 
 ## Scope and limitations
 
-- Pagewatcher downloads server-returned HTML; it does not execute JavaScript. For a
-  client-rendered page, monitor a stable server endpoint or API instead.
+- HTTP mode uses server-returned HTML and does not execute JavaScript. Chromium mode
+  captures rendered HTML after JavaScript execution, but a stable server endpoint or
+  API is still preferable when one is available.
+- Chromium mode consumes substantially more memory and CPU than HTTP mode and cannot
+  guarantee access through every site's bot-management policy.
 - One process is configured for one URL and one APNs token or Pushover recipient.
   Separate processes and database files can monitor additional URLs or recipients.
 - Provider acceptance does not guarantee delivery. Device connectivity, notification
