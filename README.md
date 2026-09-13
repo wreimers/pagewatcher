@@ -10,6 +10,7 @@ The first successful check establishes a baseline and does not send a notificati
 ## Requirements
 
 - Python 3.12 or newer
+- Chromium installed through Playwright
 - Credentials for either APNs or Pushover
 
 APNs requires an Apple Developer account, an APNs-enabled companion app, and an Apple
@@ -25,7 +26,12 @@ dependencies:
 python3.12 -m venv venv
 source venv/bin/activate
 python -m pip install -e ".[dev]"
+python -m playwright install chromium
 ```
+
+Playwright's Python package and its managed Chromium binary are installed
+separately. Run the browser-install command again after upgrading Playwright if it
+reports that a newer browser build is required.
 
 Create local configuration from the tracked template, replace its placeholder URL
 and credentials, then validate it:
