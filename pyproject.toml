@@ -5,13 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pagewatcher"
 version = "0.1.0"
-description = "Monitor web pages for material changes and send APNs notifications."
+description = "Monitor web pages for material changes and send push notifications."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "beautifulsoup4>=4.12,<5",
     "httpx[http2]>=0.27,<1",
     "PyJWT[crypto]>=2.8,<3",
+    "python-dotenv>=1.2,<2",
 ]
 
 [project.optional-dependencies]
