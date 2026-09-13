@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from pagewatcher.config import ConfigError, WatcherConfig
+from pagewatcher.config import ConfigError, NotificationProvider, WatcherConfig
 
 
 def valid_env(tmp_path: Path) -> dict[str, str]:
@@ -30,7 +30,10 @@ def test_from_env_uses_defaults(tmp_path: Path) -> None:
     assert config.ignore_selectors == ("script", "style", "noscript", "template")
     assert config.similarity_threshold == 0.98
     assert config.minimum_changed_characters == 20
+    assert config.notification_provider is NotificationProvider.APNS
+    assert config.apns is not None
     assert config.apns.use_sandbox is True
+    assert config.pushover is None
 
 
 def test_from_env_parses_overrides(tmp_path: Path) -> None:
@@ -59,7 +62,90 @@ def test_from_env_parses_overrides(tmp_path: Path) -> None:
     assert config.ignore_selectors == (".timestamp", "aside")
     assert config.similarity_threshold == 0.9
     assert config.minimum_changed_characters == 5
+    assert config.apns is not None
     assert config.apns.use_sandbox is False
+
+
+def test_from_env_parses_pushover_configuration_without_apns_credentials() -> None:
+    config = WatcherConfig.from_env(
+        {
+            "PAGEWATCHER_URL": "https://example.com/status",
+            "PAGEWATCHER_NOTIFICATION_PROVIDER": "PUSHOVER",
+            "PAGEWATCHER_PUSHOVER_APP_TOKEN": "a" * 30,
+            "PAGEWATCHER_PUSHOVER_USER_KEY": "U" * 30,
+            "PAGEWATCHER_PUSHOVER_DEVICE": "personal_iphone-15",
+        }
+    )
+
+    assert config.notification_provider is NotificationProvider.PUSHOVER
+    assert config.apns is None
+    assert config.pushover is not None
+    assert config.pushover.app_token == "a" * 30
+    assert config.pushover.user_key == "U" * 30
+    assert config.pushover.device == "personal_iphone-15"
+
+
+def test_from_env_allows_pushover_without_specific_device() -> None:
+    config = WatcherConfig.from_env(
+        {
+            "PAGEWATCHER_URL": "https://example.com/status",
+            "PAGEWATCHER_NOTIFICATION_PROVIDER": "pushover",
+            "PAGEWATCHER_PUSHOVER_APP_TOKEN": "a" * 30,
+            "PAGEWATCHER_PUSHOVER_USER_KEY": "u" * 30,
+        }
+    )
+
+    assert config.pushover is not None
+    assert config.pushover.device is None
+
+
+def test_from_env_rejects_unknown_notification_provider(tmp_path: Path) -> None:
+    env = valid_env(tmp_path)
+    env["PAGEWATCHER_NOTIFICATION_PROVIDER"] = "carrier-pigeon"
+
+    with pytest.raises(ConfigError, match="must be one of: apns, pushover"):
+        WatcherConfig.from_env(env)
+
+
+@pytest.mark.parametrize(
+    "missing_name",
+    ["PAGEWATCHER_PUSHOVER_APP_TOKEN", "PAGEWATCHER_PUSHOVER_USER_KEY"],
+)
+def test_from_env_requires_selected_pushover_credentials(missing_name: str) -> None:
+    env = {
+        "PAGEWATCHER_URL": "https://example.com/status",
+        "PAGEWATCHER_NOTIFICATION_PROVIDER": "pushover",
+        "PAGEWATCHER_PUSHOVER_APP_TOKEN": "a" * 30,
+        "PAGEWATCHER_PUSHOVER_USER_KEY": "u" * 30,
+    }
+    del env[missing_name]
+
+    with pytest.raises(ConfigError, match=f"{missing_name} is required"):
+        WatcherConfig.from_env(env)
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("PAGEWATCHER_PUSHOVER_APP_TOKEN", "short", "30 alphanumeric"),
+        ("PAGEWATCHER_PUSHOVER_USER_KEY", "!" * 30, "30 alphanumeric"),
+        ("PAGEWATCHER_PUSHOVER_DEVICE", "spaces are invalid", "1 to 25"),
+        ("PAGEWATCHER_PUSHOVER_DEVICE", "x" * 26, "1 to 25"),
+    ],
+)
+def test_from_env_rejects_invalid_pushover_values(
+    name: str, value: str, message: str
+) -> None:
+    env = {
+        "PAGEWATCHER_URL": "https://example.com/status",
+        "PAGEWATCHER_NOTIFICATION_PROVIDER": "pushover",
+        "PAGEWATCHER_PUSHOVER_APP_TOKEN": "a" * 30,
+        "PAGEWATCHER_PUSHOVER_USER_KEY": "u" * 30,
+    }
+    env[name] = value
+
+    with pytest.raises(ConfigError, match=message):
+        WatcherConfig.from_env(env)
 
 
 @pytest.mark.parametrize(

@@ -3,14 +3,23 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from urllib.parse import urlparse
 
 
 class ConfigError(ValueError):
     """Raised when pagewatcher configuration is missing or invalid."""
+
+
+class NotificationProvider(StrEnum):
+    """Supported notification delivery services."""
+
+    APNS = "apns"
+    PUSHOVER = "pushover"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,11 +35,22 @@ class ApnsConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class PushoverConfig:
+    """Credentials and optional device routing for Pushover."""
+
+    app_token: str
+    user_key: str
+    device: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class WatcherConfig:
     """Validated settings needed to run a page watcher."""
 
     url: str
-    apns: ApnsConfig
+    apns: ApnsConfig | None = None
+    pushover: PushoverConfig | None = None
+    notification_provider: NotificationProvider = NotificationProvider.APNS
     database_path: Path = Path("pagewatcher.db")
     poll_interval_seconds: float = 300.0
     request_timeout_seconds: float = 20.0
@@ -52,29 +72,19 @@ class WatcherConfig:
         values = os.environ if env is None else env
         url = _required(values, "PAGEWATCHER_URL")
         _validate_url(url)
-
-        private_key_path = Path(
-            _required(values, "PAGEWATCHER_APNS_PRIVATE_KEY_PATH")
-        ).expanduser()
-        if not private_key_path.is_file():
-            raise ConfigError(
-                "PAGEWATCHER_APNS_PRIVATE_KEY_PATH must point to an existing file"
-            )
-
-        apns = ApnsConfig(
-            team_id=_required(values, "PAGEWATCHER_APNS_TEAM_ID"),
-            key_id=_required(values, "PAGEWATCHER_APNS_KEY_ID"),
-            bundle_id=_required(values, "PAGEWATCHER_APNS_BUNDLE_ID"),
-            device_token=_required(values, "PAGEWATCHER_APNS_DEVICE_TOKEN"),
-            private_key_path=private_key_path,
-            use_sandbox=_boolean(
-                values, "PAGEWATCHER_APNS_USE_SANDBOX", default=True
-            ),
+        provider = _notification_provider(values)
+        apns = _apns_config(values) if provider is NotificationProvider.APNS else None
+        pushover = (
+            _pushover_config(values)
+            if provider is NotificationProvider.PUSHOVER
+            else None
         )
 
         return cls(
             url=url,
             apns=apns,
+            pushover=pushover,
+            notification_provider=provider,
             database_path=Path(
                 values.get("PAGEWATCHER_DATABASE_PATH", "pagewatcher.db")
             ).expanduser(),
@@ -116,6 +126,59 @@ def _required(env: Mapping[str, str], name: str) -> str:
     if not value:
         raise ConfigError(f"{name} is required")
     return value
+
+
+def _notification_provider(env: Mapping[str, str]) -> NotificationProvider:
+    raw = env.get("PAGEWATCHER_NOTIFICATION_PROVIDER", "apns").strip().lower()
+    try:
+        return NotificationProvider(raw)
+    except ValueError as error:
+        choices = ", ".join(provider.value for provider in NotificationProvider)
+        raise ConfigError(
+            f"PAGEWATCHER_NOTIFICATION_PROVIDER must be one of: {choices}"
+        ) from error
+
+
+def _apns_config(env: Mapping[str, str]) -> ApnsConfig:
+    private_key_path = Path(
+        _required(env, "PAGEWATCHER_APNS_PRIVATE_KEY_PATH")
+    ).expanduser()
+    if not private_key_path.is_file():
+        raise ConfigError(
+            "PAGEWATCHER_APNS_PRIVATE_KEY_PATH must point to an existing file"
+        )
+    return ApnsConfig(
+        team_id=_required(env, "PAGEWATCHER_APNS_TEAM_ID"),
+        key_id=_required(env, "PAGEWATCHER_APNS_KEY_ID"),
+        bundle_id=_required(env, "PAGEWATCHER_APNS_BUNDLE_ID"),
+        device_token=_required(env, "PAGEWATCHER_APNS_DEVICE_TOKEN"),
+        private_key_path=private_key_path,
+        use_sandbox=_boolean(env, "PAGEWATCHER_APNS_USE_SANDBOX", default=True),
+    )
+
+
+def _pushover_config(env: Mapping[str, str]) -> PushoverConfig:
+    app_token = _required(env, "PAGEWATCHER_PUSHOVER_APP_TOKEN")
+    user_key = _required(env, "PAGEWATCHER_PUSHOVER_USER_KEY")
+    if re.fullmatch(r"[A-Za-z0-9]{30}", app_token) is None:
+        raise ConfigError(
+            "PAGEWATCHER_PUSHOVER_APP_TOKEN must be 30 alphanumeric characters"
+        )
+    if re.fullmatch(r"[A-Za-z0-9]{30}", user_key) is None:
+        raise ConfigError(
+            "PAGEWATCHER_PUSHOVER_USER_KEY must be 30 alphanumeric characters"
+        )
+    raw_device = env.get("PAGEWATCHER_PUSHOVER_DEVICE", "").strip()
+    if raw_device and re.fullmatch(r"[A-Za-z0-9_-]{1,25}", raw_device) is None:
+        raise ConfigError(
+            "PAGEWATCHER_PUSHOVER_DEVICE must contain 1 to 25 letters, numbers, "
+            "underscores, or hyphens"
+        )
+    return PushoverConfig(
+        app_token=app_token,
+        user_key=user_key,
+        device=raw_device or None,
+    )
 
 
 def _validate_url(value: str) -> None:
