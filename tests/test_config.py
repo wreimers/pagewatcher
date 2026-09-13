@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from pagewatcher import config as config_module
 from pagewatcher.config import ConfigError, NotificationProvider, WatcherConfig
 
 
@@ -205,3 +206,110 @@ def test_from_env_requires_existing_private_key(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError, match="must point to an existing file"):
         WatcherConfig.from_env(env)
+
+
+def test_from_env_loads_default_dotenv_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    private_key = tmp_path / "AuthKey_TEST.p8"
+    private_key.write_text("test key", encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "# Pagewatcher development settings",
+                'PAGEWATCHER_URL="https://dotenv.example.com/status"',
+                "PAGEWATCHER_APNS_TEAM_ID=TEAM123",
+                "PAGEWATCHER_APNS_KEY_ID=KEY123",
+                "PAGEWATCHER_APNS_BUNDLE_ID=com.example.pagewatcher",
+                "PAGEWATCHER_APNS_DEVICE_TOKEN=device-token",
+                f"PAGEWATCHER_APNS_PRIVATE_KEY_PATH={private_key}",
+                "PAGEWATCHER_POLL_INTERVAL_SECONDS=60",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config_module.os, "environ", {})
+
+    config = WatcherConfig.from_env()
+
+    assert config.url == "https://dotenv.example.com/status"
+    assert config.poll_interval_seconds == 60
+    assert config.apns is not None
+    assert config.apns.private_key_path == private_key
+
+
+def test_environment_mapping_overrides_explicit_dotenv_file(tmp_path: Path) -> None:
+    env_file = tmp_path / "development.env"
+    private_key = tmp_path / "AuthKey_TEST.p8"
+    private_key.write_text("test key", encoding="utf-8")
+    env_file.write_text(
+        "\n".join(
+            [
+                "PAGEWATCHER_URL=https://file.example.com/status",
+                "PAGEWATCHER_APNS_TEAM_ID=TEAM123",
+                "PAGEWATCHER_APNS_KEY_ID=KEY123",
+                "PAGEWATCHER_APNS_BUNDLE_ID=com.example.pagewatcher",
+                "PAGEWATCHER_APNS_DEVICE_TOKEN=device-token",
+                f"PAGEWATCHER_APNS_PRIVATE_KEY_PATH={private_key}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = WatcherConfig.from_env(
+        {"PAGEWATCHER_URL": "https://environment.example.com/status"},
+        dotenv_path=env_file,
+    )
+
+    assert config.url == "https://environment.example.com/status"
+
+
+def test_explicit_mapping_does_not_implicitly_load_dotenv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".env").write_text(
+        "PAGEWATCHER_URL=https://dotenv.example.com/status",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ConfigError, match="PAGEWATCHER_URL is required"):
+        WatcherConfig.from_env({})
+
+
+def test_env_file_variable_selects_custom_dotenv_path(tmp_path: Path) -> None:
+    env_file = tmp_path / "pagewatcher.env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "PAGEWATCHER_URL=https://example.com/status",
+                "PAGEWATCHER_NOTIFICATION_PROVIDER=pushover",
+                f"PAGEWATCHER_PUSHOVER_APP_TOKEN={'a' * 30}",
+                f"PAGEWATCHER_PUSHOVER_USER_KEY={'u' * 30}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = WatcherConfig.from_env({"PAGEWATCHER_ENV_FILE": str(env_file)})
+
+    assert config.notification_provider is NotificationProvider.PUSHOVER
+    assert config.pushover is not None
+
+
+def test_requested_missing_dotenv_file_is_rejected(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.env"
+
+    with pytest.raises(ConfigError, match="dotenv file does not exist"):
+        WatcherConfig.from_env({}, dotenv_path=missing)
+
+
+def test_missing_default_dotenv_file_is_optional(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config_module.os, "environ", {})
+
+    with pytest.raises(ConfigError, match="PAGEWATCHER_URL is required"):
+        WatcherConfig.from_env()

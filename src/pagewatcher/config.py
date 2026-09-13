@@ -10,6 +10,11 @@ from enum import StrEnum
 from pathlib import Path
 from urllib.parse import urlparse
 
+from dotenv import dotenv_values
+
+
+_ENV_FILE_VARIABLE = "PAGEWATCHER_ENV_FILE"
+
 
 class ConfigError(ValueError):
     """Raised when pagewatcher configuration is missing or invalid."""
@@ -66,10 +71,20 @@ class WatcherConfig:
     minimum_changed_characters: int = 20
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> WatcherConfig:
-        """Build and validate configuration from PAGEWATCHER_* variables."""
+    def from_env(
+        cls,
+        env: Mapping[str, str] | None = None,
+        *,
+        dotenv_path: str | Path | None = None,
+    ) -> WatcherConfig:
+        """Build configuration from a dotenv file and PAGEWATCHER_* variables.
 
-        values = os.environ if env is None else env
+        A supplied ``env`` mapping remains isolated for programmatic use unless a
+        ``dotenv_path`` or ``PAGEWATCHER_ENV_FILE`` entry explicitly requests a file.
+        Environment values always override values parsed from the dotenv file.
+        """
+
+        values = _configuration_values(env, dotenv_path)
         url = _required(values, "PAGEWATCHER_URL")
         _validate_url(url)
         provider = _notification_provider(values)
@@ -126,6 +141,38 @@ def _required(env: Mapping[str, str], name: str) -> str:
     if not value:
         raise ConfigError(f"{name} is required")
     return value
+
+
+def _configuration_values(
+    env: Mapping[str, str] | None,
+    dotenv_path: str | Path | None,
+) -> Mapping[str, str]:
+    if env is not None and dotenv_path is None and _ENV_FILE_VARIABLE not in env:
+        return env
+
+    overrides = os.environ if env is None else env
+    configured_path = overrides.get(_ENV_FILE_VARIABLE)
+    path_was_requested = dotenv_path is not None or configured_path is not None
+    if dotenv_path is not None:
+        raw_path: str | Path = dotenv_path
+    elif configured_path is not None:
+        raw_path = configured_path
+    else:
+        raw_path = ".env"
+    if not str(raw_path).strip():
+        raise ConfigError(f"{_ENV_FILE_VARIABLE} must not be empty")
+    path = Path(raw_path).expanduser()
+    if not path.is_file():
+        if path_was_requested:
+            raise ConfigError(f"dotenv file does not exist: {path}")
+        return overrides
+
+    file_values = {
+        key: value
+        for key, value in dotenv_values(path).items()
+        if value is not None
+    }
+    return {**file_values, **overrides}
 
 
 def _notification_provider(env: Mapping[str, str]) -> NotificationProvider:
