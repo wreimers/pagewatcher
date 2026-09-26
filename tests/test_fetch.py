@@ -80,7 +80,7 @@ def test_follows_redirects_and_reports_final_url() -> None:
     assert result.final_url == "https://example.com/new"
 
 
-@pytest.mark.parametrize("status_code", [408, 425, 429, 500, 503])
+@pytest.mark.parametrize("status_code", [400, 401, 404, 408, 425, 429, 499, 500, 503])
 def test_classifies_retryable_http_statuses_as_transient(status_code: int) -> None:
     fetcher = make_fetcher(lambda request: httpx.Response(status_code))
 
@@ -90,7 +90,7 @@ def test_classifies_retryable_http_statuses_as_transient(status_code: int) -> No
     assert raised.value.status_code == status_code
 
 
-@pytest.mark.parametrize("status_code", [301, 400, 401, 404])
+@pytest.mark.parametrize("status_code", [301, 399, 600])
 def test_classifies_other_error_statuses_as_permanent(status_code: int) -> None:
     fetcher = make_fetcher(lambda request: httpx.Response(status_code))
 

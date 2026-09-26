@@ -22,6 +22,8 @@ from pagewatcher.pushover import PushoverError, TransientPushoverError
 from pagewatcher.store import SqliteStateStore
 from pagewatcher.watcher import PageWatcher, WatcherError, WatchResult
 
+HTTP_CLIENT_ERROR_RETRY_SECONDS = 30
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the selected command and return a process exit status."""
@@ -109,6 +111,7 @@ def _create_fetcher(config: WatcherConfig) -> PageFetcher | BrowserPageFetcher:
 
 def _watch_forever(watcher: PageWatcher, interval_seconds: float) -> None:
     while True:
+        retry_delay = interval_seconds
         try:
             _print_result(watcher.check_once())
         except (
@@ -117,7 +120,13 @@ def _watch_forever(watcher: PageWatcher, interval_seconds: float) -> None:
             TransientPushoverError,
         ) as error:
             print(f"Transient error; will retry: {error}", file=sys.stderr)
-        time.sleep(interval_seconds)
+            if (
+                isinstance(error, TransientFetchError)
+                and error.status_code is not None
+                and 400 <= error.status_code < 500
+            ):
+                retry_delay = HTTP_CLIENT_ERROR_RETRY_SECONDS
+        time.sleep(retry_delay)
 
 
 def _send_test_notification(config: WatcherConfig) -> None:

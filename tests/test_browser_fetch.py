@@ -164,7 +164,7 @@ def test_ephemeral_mode_closes_context_after_fetch_error(tmp_path: Path) -> None
     )
     context = chromium.launch_persistent_context.return_value
 
-    with pytest.raises(PermanentFetchError):
+    with pytest.raises(TransientFetchError):
         fetcher.fetch(URL)
 
     context.close.assert_called_once_with()
@@ -210,7 +210,7 @@ def test_uses_configured_browser_channel(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("status_code", [408, 425, 429, 500, 503])
+@pytest.mark.parametrize("status_code", [400, 401, 403, 404, 408, 425, 429, 499, 500, 503])
 def test_classifies_retryable_http_statuses_as_transient(
     tmp_path: Path,
     status_code: int,
@@ -225,7 +225,7 @@ def test_classifies_retryable_http_statuses_as_transient(
     assert raised.value.status_code == status_code
 
 
-@pytest.mark.parametrize("status_code", [301, 400, 401, 403, 404])
+@pytest.mark.parametrize("status_code", [301, 399, 600])
 def test_classifies_other_http_errors_as_permanent(
     tmp_path: Path,
     status_code: int,

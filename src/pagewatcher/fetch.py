@@ -169,7 +169,7 @@ def _raise_for_status(response: httpx.Response) -> None:
     if 200 <= status_code < 300:
         return
     message = f"page returned HTTP {status_code} for {response.url}"
-    if status_code in {408, 425, 429} or 500 <= status_code < 600:
+    if 400 <= status_code < 600:
         raise TransientFetchError(message, status_code=status_code)
     raise PermanentFetchError(message, status_code=status_code)
 

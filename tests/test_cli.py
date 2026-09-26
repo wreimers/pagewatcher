@@ -193,6 +193,28 @@ def test_watch_retries_transient_errors_and_prints_later_success(
     assert "Check complete: http_not_modified" in output.out
 
 
+@pytest.mark.parametrize("status_code", [400, 404, 429, 499])
+def test_watch_retries_http_4xx_after_thirty_seconds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+) -> None:
+    config = make_config(tmp_path)
+    set_config(monkeypatch, config)
+    watcher = Mock()
+    watcher.check_once.side_effect = TransientFetchError(
+        "client error", status_code=status_code
+    )
+    set_watcher(monkeypatch, watcher)
+    sleep = Mock(side_effect=KeyboardInterrupt)
+    monkeypatch.setattr(cli.time, "sleep", sleep)
+
+    status = cli.main(["watch"])
+
+    assert status == 130
+    sleep.assert_called_once_with(30)
+
+
 def test_test_notification_sends_expected_alert(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

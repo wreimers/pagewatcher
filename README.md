@@ -308,11 +308,12 @@ State is stored by URL in SQLite. It includes the comparison snapshot and hash, 
 Last-Modified value, last-check time, and last successfully notified hash. Database
 directories are created automatically.
 
-`pagewatcher watch` retries network timeouts, retryable page responses, APNs rate
-limits, expired APNs provider tokens, and APNs or Pushover server failures after the
-normal polling interval. Configuration errors, invalid selectors, oversized pages,
-invalid provider requests, exhausted Pushover quotas, and other permanent failures
-stop the process with a nonzero status.
+`pagewatcher watch` retries all HTTP 4xx page responses after 30 seconds. It retries
+network timeouts, HTTP 5xx page responses, APNs rate limits, expired APNs provider
+tokens, and APNs or Pushover server failures after the normal polling interval.
+Configuration errors, invalid selectors, oversized pages, invalid provider requests,
+exhausted Pushover quotas, and other permanent failures stop the process with a
+nonzero status.
 
 APNs collapse identifiers are derived from the snapshot hash. Retries for the same
 snapshot therefore use the same identifier, reducing duplicate visible alerts if a
